@@ -8,6 +8,7 @@
 
 import MetalKit
 import AVFoundation
+import Firebase
 
 class MetalController: NSObject {
     
@@ -36,6 +37,9 @@ class MetalController: NSObject {
     private var textureCache: CVMetalTextureCache!
     private var texture: MTLTexture?
     
+    private var faceDetector: VisionFaceDetector!
+    private var vision: Vision!
+
     override init() {
 
         super.init()
@@ -51,6 +55,20 @@ class MetalController: NSObject {
         }
 
         initializeRenderPipelineState()
+        initializeFaceDetection()
+    }
+    
+    func initializeFaceDetection() {
+        FirebaseApp.configure()
+        
+        // High-accuracy landmark detection and face classification
+        let options = VisionFaceDetectorOptions()
+        options.performanceMode = .accurate
+        options.landmarkMode = .all
+        options.classificationMode = .all
+        
+        vision = Vision.vision()
+        faceDetector = vision.faceDetector(options: options)
     }
     
     // MARK: Processing and applying Filters
@@ -59,6 +77,43 @@ class MetalController: NSObject {
         
         // Synchronize the texture computation so that camera frames don't go out of sync
         _ = semaphore.wait(timeout: DispatchTime.distantFuture)
+
+        
+        
+        let metadata = VisionImageMetadata()
+        
+        // Using back-facing camera
+        let devicePosition: AVCaptureDevice.Position = .back
+        
+        let deviceOrientation = UIDevice.current.orientation
+        switch deviceOrientation {
+        case .portrait:
+            metadata.orientation = devicePosition == .front ? .leftTop : .rightTop
+        case .landscapeLeft:
+            metadata.orientation = devicePosition == .front ? .bottomLeft : .topLeft
+        case .portraitUpsideDown:
+            metadata.orientation = devicePosition == .front ? .rightBottom : .leftBottom
+        case .landscapeRight:
+            metadata.orientation = devicePosition == .front ? .topRight : .bottomRight
+        case .faceDown, .faceUp, .unknown:
+            metadata.orientation = .leftTop
+        }
+
+        let visionImage = VisionImage(buffer: sampleBuffer)
+        visionImage.metadata = metadata
+
+        faceDetector.process(visionImage) { (faces, error) in
+            
+            if let faces = faces {
+                if let firstFace = faces.first {
+                    
+                    let frame = firstFace.frame
+                    
+                    print("frame")
+                    
+                }
+            }
+        }
         
         // Step 1: Get a Texture from the incoming frame buffer
         guard let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer),

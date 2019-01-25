@@ -7,6 +7,9 @@ target 'Metallic' do
 
   # Pods for Metallic
   pod 'FPSCounter'
+  pod 'Firebase/Core'
+  pod 'Firebase/MLVision'
+  pod 'Firebase/MLVisionFaceModel'
   
   target 'MetallicTests' do
     inherit! :search_paths
