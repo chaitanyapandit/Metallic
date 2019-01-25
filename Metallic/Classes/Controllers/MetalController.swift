@@ -8,7 +8,6 @@
 
 import MetalKit
 import AVFoundation
-import Firebase
 
 class MetalController: NSObject {
     
@@ -36,9 +35,7 @@ class MetalController: NSObject {
     private let semaphore = DispatchSemaphore(value: 1)
     private var textureCache: CVMetalTextureCache!
     private var texture: MTLTexture?
-    
-    private var faceDetector: VisionFaceDetector!
-    private var vision: Vision!
+    let faceDetector = CIDetector(ofType: CIDetectorTypeFace, context: nil, options: [CIDetectorAccuracy : CIDetectorAccuracyLow])
 
     override init() {
 
@@ -55,20 +52,6 @@ class MetalController: NSObject {
         }
 
         initializeRenderPipelineState()
-        initializeFaceDetection()
-    }
-    
-    func initializeFaceDetection() {
-        FirebaseApp.configure()
-        
-        // High-accuracy landmark detection and face classification
-        let options = VisionFaceDetectorOptions()
-        options.performanceMode = .accurate
-        options.landmarkMode = .all
-        options.classificationMode = .all
-        
-        vision = Vision.vision()
-        faceDetector = vision.faceDetector(options: options)
     }
     
     // MARK: Processing and applying Filters
@@ -77,47 +60,47 @@ class MetalController: NSObject {
         
         // Synchronize the texture computation so that camera frames don't go out of sync
         _ = semaphore.wait(timeout: DispatchTime.distantFuture)
-
         
-        
-        let metadata = VisionImageMetadata()
-        
-        // Using back-facing camera
-        let devicePosition: AVCaptureDevice.Position = .back
-        
-        let deviceOrientation = UIDevice.current.orientation
-        switch deviceOrientation {
-        case .portrait:
-            metadata.orientation = devicePosition == .front ? .leftTop : .rightTop
-        case .landscapeLeft:
-            metadata.orientation = devicePosition == .front ? .bottomLeft : .topLeft
-        case .portraitUpsideDown:
-            metadata.orientation = devicePosition == .front ? .rightBottom : .leftBottom
-        case .landscapeRight:
-            metadata.orientation = devicePosition == .front ? .topRight : .bottomRight
-        case .faceDown, .faceUp, .unknown:
-            metadata.orientation = .leftTop
+        guard var imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
+            return
         }
+        
 
-        let visionImage = VisionImage(buffer: sampleBuffer)
-        visionImage.metadata = metadata
-
-        faceDetector.process(visionImage) { (faces, error) in
+        let attachments = CMCopyDictionaryOfAttachments(allocator: kCFAllocatorDefault, target: sampleBuffer, attachmentMode: kCMAttachmentMode_ShouldPropagate)
+        let ciImage = CIImage(cvImageBuffer: imageBuffer, options: attachments as! [CIImageOption : Any])
+        let options: [String : Any] = [CIDetectorImageOrientation: exifOrientation(orientation: UIDevice.current.orientation),
+                                       CIDetectorSmile: true,
+                                       CIDetectorEyeBlink: true]
+        let allFeatures = faceDetector?.features(in: ciImage, options: options)
+        let formatDescription = CMSampleBufferGetFormatDescription(sampleBuffer)
+        let cleanAperture = CMVideoFormatDescriptionGetCleanAperture(formatDescription!, originIsAtTopLeft: false)
+        
+        if let firstFeature = allFeatures?.first {
+           var faceRect = firstFeature.bounds
             
-            if let faces = faces {
-                if let firstFace = faces.first {
-                    
-                    let frame = firstFace.frame
-                    
-                    print("frame")
-                    
-                }
-            }
+            var temp = faceRect.size.width
+            faceRect.size.width = faceRect.size.height
+            faceRect.size.height = temp
+            temp = faceRect.origin.x
+            faceRect.origin.x = faceRect.origin.y
+            faceRect.origin.y = temp
+            print("Face faceRect:\(faceRect)")
+
+            
+            CVPixelBufferLockBaseAddress( imageBuffer, CVPixelBufferLockFlags.init(rawValue: 0))
+            let eaglContext = EAGLContext(api: EAGLRenderingAPI.openGLES2)!
+            let ciContext = CIContext(eaglContext: eaglContext, options: [CIContextOption.workingColorSpace:NSNull()])
+            let overlayImage = UIImage(named: "overlay-image")!
+            let ciImageOverlay = CIImage(cgImage: overlayImage.cgImage!)
+            
+            ciContext.render(ciImageOverlay, to: imageBuffer, bounds: faceRect, colorSpace: CGColorSpaceCreateDeviceRGB())
+            
+            CVPixelBufferUnlockBaseAddress(imageBuffer, CVPixelBufferLockFlags.init(rawValue: 0))
         }
+        
         
         // Step 1: Get a Texture from the incoming frame buffer
-        guard let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer),
-            let texture = MetalController.textureFromImageBuffer(imageBuffer: imageBuffer, textureCache:textureCache, planeIndex: 0) else {
+        guard let texture = MetalController.textureFromImageBuffer(imageBuffer: imageBuffer, textureCache:textureCache, planeIndex: 0) else {
                 semaphore.signal()
                 
                 return
@@ -140,7 +123,21 @@ class MetalController: NSObject {
         
         semaphore.signal()
     }
- 
+    
+    func exifOrientation(orientation: UIDeviceOrientation) -> Int {
+        switch orientation {
+        case .portraitUpsideDown:
+            return 8
+        case .landscapeLeft:
+            return 3
+        case .landscapeRight:
+            return 1
+        default:
+            return 6
+        }
+    }
+    
+   
     // MARK: Rendering
     
     private func render(texture: MTLTexture, inView metalView:MTKView, withCommandBuffer commandBuffer: MTLCommandBuffer, device: MTLDevice) {

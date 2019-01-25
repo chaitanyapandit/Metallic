@@ -48,7 +48,7 @@ class CameraController: NSObject {
         session.sessionPreset = capturePreset
         session.usesApplicationAudioSession = false
 
-        guard let device = CameraController.camera(withPosition: .back) else {
+        guard let device = CameraController.camera(withPosition: .front) else {
             return CaptureSessionError.deviceNotFound
         }
         
