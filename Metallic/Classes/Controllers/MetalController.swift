@@ -60,10 +60,6 @@ class MetalController: NSObject {
         // Synchronize the texture computation so that camera frames don't go out of sync
         _ = semaphore.wait(timeout: DispatchTime.distantFuture)
         
-        guard sampleBuffer.isVideoBuffer() else {
-            return
-        }
-        
         // Step 1: Get a Texture from the incoming frame buffer
         guard let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer),
             let texture = MetalController.textureFromImageBuffer(imageBuffer: imageBuffer, textureCache:textureCache, planeIndex: 0) else {
