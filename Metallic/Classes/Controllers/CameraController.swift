@@ -20,6 +20,8 @@ class CameraController: NSObject {
     var output: ((CMSampleBuffer) -> Void)?
     var videoInput: AVCaptureDeviceInput?
     var videoOutput: AVCaptureVideoDataOutput?
+    var audioInput: AVCaptureDeviceInput?
+    var audioOutput: AVCaptureAudioDataOutput?
 
     // MARK: Interface
 
@@ -48,33 +50,83 @@ class CameraController: NSObject {
         session.sessionPreset = capturePreset
         session.usesApplicationAudioSession = false
 
-        guard let device = CameraController.camera(withPosition: .back) else {
+        guard let videoInputRef = self.addVideoInput(session: session),
+            let videoOutputRef = self.addVideoOutput(session: session),
+            let audioInputRef = self.addAudioInput(session: session),
+            let audioOutputRef = self.addAudioOutput(session: session) else {
             return CaptureSessionError.deviceNotFound
         }
         
-        do {
-            let input = try AVCaptureDeviceInput(device: device)
-            session.addInput(input)
-            videoInput = input
-
-        } catch let error {
-            return error
-        }
-
-        let output = AVCaptureVideoDataOutput()
-        output.videoSettings = [
-            kCVPixelBufferPixelFormatTypeKey as String: Int(kCVPixelFormatType_32BGRA)
-        ]
-        output.alwaysDiscardsLateVideoFrames = true
-        output.setSampleBufferDelegate(self, queue: captureQueue)
-        session.addOutput(output)
-        videoOutput = output
+        videoInput = videoInputRef
+        videoOutput = videoOutputRef
+        audioInput = audioInputRef
+        audioOutput = audioOutputRef
         
         session.commitConfiguration()
         session.startRunning()
         captureSession = session
         
         return nil
+    }
+    
+    func addVideoInput(session: AVCaptureSession) -> AVCaptureDeviceInput? {
+        guard let device = CameraController.camera(withPosition: .back) else {
+            return nil
+        }
+     
+        return self.addInput(device: device, session: session)
+    }
+    
+    func addAudioInput(session: AVCaptureSession) -> AVCaptureDeviceInput? {
+        guard let device = CameraController.microphone() else {
+            return nil
+        }
+        
+        return self.addInput(device: device, session: session)
+    }
+    
+    func addInput(device:AVCaptureDevice, session: AVCaptureSession) -> AVCaptureDeviceInput? {
+        do {
+            let input = try AVCaptureDeviceInput(device: device)
+            guard session.canAddInput(input) else {
+                return nil
+            }
+            
+            session.addInput(input)
+            
+            return input
+        } catch let error {
+            print("Error adding video input: \(error)")
+            return nil
+        }
+    }
+
+    func addVideoOutput(session: AVCaptureSession) -> AVCaptureVideoDataOutput? {
+        let output = AVCaptureVideoDataOutput()
+        output.videoSettings = [
+            kCVPixelBufferPixelFormatTypeKey as String: Int(kCVPixelFormatType_32BGRA)
+        ]
+        output.alwaysDiscardsLateVideoFrames = true
+        
+        guard session.canAddOutput(output) else {
+            return nil
+        }
+        
+        output.setSampleBufferDelegate(self, queue: captureQueue)
+        session.addOutput(output)
+        return output
+    }
+    
+    func addAudioOutput(session: AVCaptureSession) -> AVCaptureAudioDataOutput? {
+        let output = AVCaptureAudioDataOutput()
+        
+        guard session.canAddOutput(output) else {
+            return nil
+        }
+        
+        output.setSampleBufferDelegate(self, queue: captureQueue)
+        session.addOutput(output)
+        return output
     }
     
     // MARK: Helpers
@@ -86,11 +138,15 @@ class CameraController: NSObject {
                                                 position: position).devices.filter({ $0.position == position }).first
     }
 
+    private class func microphone() -> AVCaptureDevice? {
+        return AVCaptureDevice.default(for: .audio)
+    }
+
 }
 
 // MARK: AVCaptureVideoDataOutputSampleBufferDelegate
 
-extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
+extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate, AVCaptureAudioDataOutputSampleBufferDelegate {
     
     public func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
         self.output?(sampleBuffer)

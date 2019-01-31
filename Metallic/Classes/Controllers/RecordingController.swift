@@ -12,10 +12,14 @@ import AVFoundation
 @objcMembers class RecordingController {
     
     private let assetWriter: AVAssetWriter
-    private var assetWriterInput: AVAssetWriterInput!
+    private var videoInput: AVAssetWriterInput!
+    private var audioInput: AVAssetWriterInput!
+
     var input:((CMSampleBuffer) -> Void)?
     private let queue = DispatchQueue(label: "com.ceepee.metallic.recorder")
     private var recording: Bool = false
+    private var hasAudioInput: Bool = false
+    private var hasVideoInput: Bool = false
 
     // MARK Interface
     
@@ -59,41 +63,85 @@ import AVFoundation
     }
 
     // MARK Internal
+    
+    func startWriter(sampleBuffer: CMSampleBuffer) {
+        guard hasAudioInput, hasVideoInput else {
+            return
+        }
+        
+        self.assetWriter.startWriting()
+        self.assetWriter.startSession(atSourceTime: CMSampleBufferGetPresentationTimeStamp(sampleBuffer))
+    }
 
     @objc(appendSampleBuffer:) func append(sampleBuffer: CMSampleBuffer) {
-        
         guard let formatDescription = CMSampleBufferGetFormatDescription(sampleBuffer),
-        CMFormatDescriptionGetMediaType(formatDescription) == kCMMediaType_Video,
-        let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
+        self.recording else {
+            return
+        }
+
+        self.queue.async {
+            if CMFormatDescriptionGetMediaType(formatDescription) == kCMMediaType_Video {
+                self.appendVideoBuffer(sampleBuffer: sampleBuffer)
+            } else if CMFormatDescriptionGetMediaType(formatDescription) == kCMMediaType_Audio {
+                self.appendAudioBuffer(sampleBuffer: sampleBuffer)
+            }
+        }
+    }
+    
+    func appendAudioBuffer(sampleBuffer: CMSampleBuffer) {
+        
+        if self.audioInput == nil {
+            let input = AVAssetWriterInput(mediaType: AVMediaType.audio, outputSettings: [ AVFormatIDKey: kAudioFormatMPEG4AAC,
+                                                                                           AVNumberOfChannelsKey: 1,
+                                                                                           AVSampleRateKey: 44100,
+                                                                                           AVEncoderBitRateKey: 64000])
+
+            guard self.assetWriter.canAdd(input) else {
+                return
+            }
+            
+            self.audioInput = input
+            self.assetWriter.add(input)
+            self.hasAudioInput = true
+            startWriter(sampleBuffer: sampleBuffer)
+        }
+        
+        if self.audioInput.isReadyForMoreMediaData {
+            self.audioInput.append(sampleBuffer)
+        }
+    }
+
+    func appendVideoBuffer(sampleBuffer: CMSampleBuffer) {
+        
+        guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
             return
         }
         
         // Process in a separate queue
-        self.queue.async {
-            
-            guard self.recording else {
+        if self.videoInput == nil {
+            // Setup for the first time
+            let input = AVAssetWriterInput(mediaType: .video, outputSettings:
+                [AVVideoCodecKey: AVVideoCodecType.h264,
+                 AVVideoWidthKey: CVPixelBufferGetWidth(pixelBuffer),
+                 AVVideoHeightKey: CVPixelBufferGetHeight(pixelBuffer),
+                 AVVideoScalingModeKey : AVVideoScalingModeResizeAspectFill,
+                 AVVideoCompressionPropertiesKey: [AVVideoAverageBitRateKey : 10 * 1024 * 1024]]
+            )
+
+            input.expectsMediaDataInRealTime = true
+
+            guard self.assetWriter.canAdd(input) else {
                 return
             }
             
-            if self.assetWriterInput == nil {
-                // Setup for the first time
-                self.assetWriterInput = AVAssetWriterInput(mediaType: .video, outputSettings:
-                    [AVVideoCodecKey: AVVideoCodecType.h264,
-                     AVVideoWidthKey: CVPixelBufferGetWidth(pixelBuffer),
-                     AVVideoHeightKey: CVPixelBufferGetHeight(pixelBuffer),
-                     AVVideoScalingModeKey : AVVideoScalingModeResizeAspectFill,
-                     AVVideoCompressionPropertiesKey: [AVVideoAverageBitRateKey : 10 * 1024 * 1024]]
-                )
-                self.assetWriterInput.expectsMediaDataInRealTime = true
-                self.assetWriter.add(self.assetWriterInput)
-                
-                self.assetWriter.startWriting()
-                self.assetWriter.startSession(atSourceTime: CMSampleBufferGetPresentationTimeStamp(sampleBuffer))
-            }
-            
-            if self.assetWriterInput.isReadyForMoreMediaData {
-                self.assetWriterInput.append(sampleBuffer)
-            }
+            self.videoInput = input
+            self.assetWriter.add(input)
+            self.hasVideoInput = true
+            startWriter(sampleBuffer: sampleBuffer)
+        }
+        
+        if self.videoInput.isReadyForMoreMediaData {
+            self.videoInput.append(sampleBuffer)
         }
     }
 }

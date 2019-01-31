@@ -63,6 +63,7 @@ class MetalController: NSObject {
         // Step 1: Get a Texture from the incoming frame buffer
         guard let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer),
             let texture = MetalController.textureFromImageBuffer(imageBuffer: imageBuffer, textureCache:textureCache, planeIndex: 0) else {
+                output?(sampleBuffer)
                 semaphore.signal()
                 
                 return
