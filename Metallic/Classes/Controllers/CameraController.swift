@@ -150,13 +150,32 @@ class CameraController: NSObject {
 extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate, AVCaptureAudioDataOutputSampleBufferDelegate {
     
     public func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
-        if let formatDescription = CMSampleBufferGetFormatDescription(sampleBuffer),
-            CMFormatDescriptionGetMediaType(formatDescription) == kCMMediaType_Video,
+        if sampleBuffer.isVideoBuffer(),
             let orientation = AVCaptureVideoOrientation(orientation: UIDevice.current.orientation) {
             connection.videoOrientation = orientation
         }
         
         self.output?(sampleBuffer)
+    }
+}
+
+extension CMSampleBuffer {
+    func isVideoBuffer() -> Bool {
+        guard let formatDescription = CMSampleBufferGetFormatDescription(self),
+            CMFormatDescriptionGetMediaType(formatDescription) == kCMMediaType_Video else {
+            return false
+        }
+
+        return true
+    }
+    
+    func isAudioBuffer() -> Bool {
+        guard let formatDescription = CMSampleBufferGetFormatDescription(self),
+            CMFormatDescriptionGetMediaType(formatDescription) == kCMMediaType_Audio else {
+                return false
+        }
+        
+        return true
     }
 }
 

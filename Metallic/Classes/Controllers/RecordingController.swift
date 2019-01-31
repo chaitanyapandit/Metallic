@@ -74,15 +74,14 @@ import AVFoundation
     }
 
     @objc(appendSampleBuffer:) func append(sampleBuffer: CMSampleBuffer) {
-        guard let formatDescription = CMSampleBufferGetFormatDescription(sampleBuffer),
-        self.recording else {
+        guard self.recording else {
             return
         }
 
         self.queue.async {
-            if CMFormatDescriptionGetMediaType(formatDescription) == kCMMediaType_Video {
+            if sampleBuffer.isVideoBuffer() {
                 self.appendVideoBuffer(sampleBuffer: sampleBuffer)
-            } else if CMFormatDescriptionGetMediaType(formatDescription) == kCMMediaType_Audio {
+            } else if sampleBuffer.isAudioBuffer() {
                 self.appendAudioBuffer(sampleBuffer: sampleBuffer)
             }
         }
