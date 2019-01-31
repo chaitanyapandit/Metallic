@@ -7,6 +7,7 @@
 //
 
 import AVFoundation
+import UIKit
 
 class CameraController: NSObject {
     
@@ -149,6 +150,46 @@ class CameraController: NSObject {
 extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate, AVCaptureAudioDataOutputSampleBufferDelegate {
     
     public func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+        if let formatDescription = CMSampleBufferGetFormatDescription(sampleBuffer),
+            CMFormatDescriptionGetMediaType(formatDescription) == kCMMediaType_Video,
+            let orientation = AVCaptureVideoOrientation(orientation: UIDevice.current.orientation) {
+            connection.videoOrientation = orientation
+        }
+        
         self.output?(sampleBuffer)
+    }
+}
+
+extension AVCaptureVideoOrientation {
+    var uiInterfaceOrientation: UIInterfaceOrientation {
+        get {
+            switch self {
+            case .landscapeLeft:        return .landscapeLeft
+            case .landscapeRight:       return .landscapeRight
+            case .portrait:             return .portrait
+            case .portraitUpsideDown:   return .portraitUpsideDown
+            }
+        }
+    }
+    
+    init(ui:UIInterfaceOrientation) {
+        switch ui {
+        case .landscapeRight:       self = .landscapeRight
+        case .landscapeLeft:        self = .landscapeLeft
+        case .portrait:             self = .portrait
+        case .portraitUpsideDown:   self = .portraitUpsideDown
+        default:                    self = .portrait
+        }
+    }
+    
+    init?(orientation:UIDeviceOrientation) {
+        switch orientation {
+        case .landscapeRight:       self = .landscapeLeft
+        case .landscapeLeft:        self = .landscapeRight
+        case .portrait:             self = .portrait
+        case .portraitUpsideDown:   self = .portraitUpsideDown
+        default:
+            return nil
+        }
     }
 }
